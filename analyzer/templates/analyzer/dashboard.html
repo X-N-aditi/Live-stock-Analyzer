@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Analyzer Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f9f9f9;
+        }
+        .stock-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        .stock-table th, .stock-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+        .stock-row {
+            cursor: pointer;
+            color: #007bff;
+        }
+        .stock-row:hover {
+            text-decoration: underline;
+        }
+    </style>
+    
+</head>
+<body>
+    <h1> Live Stock Prices</h1>
+    <table class="stock-table">
+        <tr>
+            <th>Symbol</th>
+            <th>Price</th>
+            <th>Open</th>
+            <th>Prev Close</th>
+            <th>Change</th>
+            <th>Volume</th>
+        </tr>
+        {% for symbol in stock_symbols %}
+        <tr>
+            <td><a><div class="stock-row" data-symbol="{{ symbol }}">{{ symbol }}</div></a></td>
+            <td id="price-{{ symbol }}">--</td>
+            <td id="open-{{ symbol }}">--</td>
+            <td id="close-{{ symbol }}">--</td>
+            <td id="change-{{ symbol }}">--</td>
+            <td id="volume-{{ symbol }}">--</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <canvas id="priceChart" width="400" height="200"></canvas>
+
+    <script>
+        const socket = new WebSocket("ws://" + window.location.host + "/ws/stocks/");
+
+        socket.onopen = () => console.log("📡 WebSocket connected");
+        socket.onerror = (error) => console.error("⚠️ WebSocket error:", error);
+        socket.onclose = () => console.warn("🔌 WebSocket closed");
+
+        const stockDataMap = {}; 
+        let stockChart; 
+
+        document.querySelectorAll('.stock-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const symbol = row.getAttribute('data-symbol');
+                updateChart(symbol);
+            });
+        });
+
+        function updateChart(symbol) {
+            const dataPoints = stockDataMap[symbol] || [];
+            const labels = dataPoints.map(p => p.time);
+            const prices = dataPoints.map(p => p.price);
+
+            if (stockChart) stockChart.destroy();
+
+            stockChart = new Chart(document.getElementById('priceChart').getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: symbol + ' Price',
+                        data: prices,
+                        borderColor: 'rgb(75, 192, 192)',
+                        fill: false,
+                        tension: 0.3,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: true } },
+                    scales: {
+                        x: { title: { display: true, text: 'Time' }},
+                        y: { title: { display: true, text: 'Price' }}
+                    }
+                }
+            });
+        }
+
+        socket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            const symbol = data.symbol.toUpperCase();
+            const time = new Date().toLocaleTimeString();
+
+            document.getElementById("price-" + symbol).innerText = data.price;
+            document.getElementById("open-" + symbol).innerText = data.open;
+            document.getElementById("close-" + symbol).innerText = data.close;
+            document.getElementById("change-" + symbol).innerText = data.change;
+            document.getElementById("volume-" + symbol).innerText = data.volume;
+
+            if (!stockDataMap[symbol]) stockDataMap[symbol] = [];
+            stockDataMap[symbol].push({ time: time, price: data.price });
+            if (stockDataMap[symbol].length > 20) stockDataMap[symbol].shift();
+
+            if (stockChart && stockChart.data.datasets[0].label.startsWith(symbol)) {
+                updateChart(symbol);
+            }
+        };
+    </script>
+</body>
+</html>
